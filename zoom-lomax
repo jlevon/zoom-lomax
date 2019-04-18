@@ -1,0 +1,90 @@
+#!/usr/bin/node
+
+var syncrequest = require('sync-request');
+var path = require('path');
+var JSON = require('JSON');
+var request = require('request');
+var fs = require('fs');
+var moment = require('moment-timezone');
+var os = require('os');
+var mkdirp = require('mkdirp');
+
+config = JSON.parse(fs.readFileSync(os.homedir() + '/' + '.zoom-lomax'));
+
+/*
+ * First, translate the user email address into the 'host id' we need.
+ */
+
+var params = {
+	qs: {
+		api_key: config.api_key,
+		api_secret: config.api_secret,
+		email: config.user,
+		data_type: 'JSON'
+	} 
+};
+
+console.log(moment().format('YYYY-MM-DD') +
+    ': downloading  meetings for user ' + config.user);
+
+var res = syncrequest('POST', 'https://api.zoom.us/v1/user/getbyemail', params);
+var results = JSON.parse(res.getBody('utf8'));
+var host_id = results.id;
+
+params = {
+	qs: {
+		api_key: config.api_key,
+		api_secret: config.api_secret,
+		host_id: host_id,
+		page_size: 10, // FIXME?
+		data_type: 'JSON'
+	} 
+};
+
+/*
+ * Now we can request the recordings for that user ("host_id").
+ */
+
+function download_meeting(timezone, start, file) {
+	var suffix = '.' + file.file_type.toLowerCase();
+	var url = file.download_url;
+	var dir = config.output_dir + moment(start).format('YYYY-MM-DD');
+	var outfile = moment(start).format('HH.mm') + suffix;
+	var path = dir + '/' + outfile;
+
+	if (fs.existsSync(path)) {
+		return;
+	}
+
+	mkdirp.sync(dir);
+
+	console.log('Downloading ' + suffix + ' file for meeting at ' +
+	    start.tz(timezone).format());
+
+	request(url).pipe(fs.createWriteStream(path));
+}
+
+/*
+ * Return the start of the day in the timezone provided.
+ */
+function get_midnight(timezone) {
+	var ret = moment().tz(timezone);
+	ret.hour(0);
+	ret.minute(0);
+	ret.second(0);
+	return ret;
+}
+
+res = syncrequest('POST', 'https://api.zoom.us/v1/recording/list', params);
+results = JSON.parse(res.getBody('utf8'));
+
+results.meetings.forEach(function (meeting) {
+	var midnight = get_midnight(meeting.timezone);
+	var start = moment.tz(meeting.start_time, meeting.timezone);
+
+	if (start > midnight) {
+		meeting.recording_files.forEach(function (file) {
+			download_meeting(meeting.timezone, start, file);
+		});
+	}
+});

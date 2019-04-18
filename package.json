@@ -1,0 +1,23 @@
+{
+  "name": "zoom-lomax",
+  "version": "0.1.0",
+  "description": "Field recorder for Zoom",
+  "main": "zoom-lomax",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jlevon/zoom-lomax.git"
+  },
+  "keywords": [
+    "zoom",
+    "download"
+  ],
+  "author": "John Levon <levon@movementarian.org>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jlevon/zoom-lomax/issues"
+  },
+  "homepage": "https://github.com/jlevon/zoom-lomax#readme"
+}
