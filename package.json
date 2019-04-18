@@ -19,5 +19,10 @@
   "bugs": {
     "url": "https://github.com/jlevon/zoom-lomax/issues"
   },
-  "homepage": "https://github.com/jlevon/zoom-lomax#readme"
+  "homepage": "https://github.com/jlevon/zoom-lomax#readme",
+  "dependencies": {
+    "JSON": "^1.0.0",
+    "moment-timezone": "^0.5.25",
+    "sync-request": "^6.1.0"
+  }
 }
