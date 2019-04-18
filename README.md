@@ -1,4 +1,4 @@
-# zoom-recorder: download daily recordings
+# zoom-lomax: download daily recordings
 
 This is a very simple utility, designed to be run from cron daily,
 which will collect the day's "field recordings" from your Zoom acccount.
