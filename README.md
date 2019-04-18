@@ -6,7 +6,7 @@ which will collect the day's "field recordings" from your Zoom acccount.
 It's currently hard-coded to download any files recorded on the day it
 runs (with respect to the timezone of the recording).
 
-To use, populate ~/.zoom-recorder like this:
+To use, populate ~/.zoom-lomax like this:
 
     {
         "api_key": "sdk_api_key",
