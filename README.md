@@ -10,9 +10,9 @@ To use, populate ~/.zoom-recorder like this:
 
     {
         "api_key": "sdk_api_key",
-	"api_secret": "sdk_api_secret",
+        "api_secret": "sdk_api_secret",
         "user": "zoom_user_email@you.com",
-	"output_dir": "/home/user/zoom-recordings/"
+        "output_dir": "/home/user/zoom-recordings/"
     }
 
 They don't make it obvious, but you will need a Pro account in order to
