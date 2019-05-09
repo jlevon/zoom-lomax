@@ -27,7 +27,6 @@ struct NoHomeDirError;
 
 impl Error for NoHomeDirError {}
 
-/* FIXME: do we really have to be ridiculously verbose?? */
 impl fmt::Display for NoHomeDirError {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "couldn't locate home directory")
@@ -38,7 +37,7 @@ impl fmt::Display for NoHomeDirError {
 struct Config {
 	api_key: String,
 	api_secret: String,
-	/* FIXME: email address - do we need to parse as such? */
+	// FIXME: email address - should we parse as such?
 	user: String,
 	output_dir: String
 }
@@ -88,41 +87,36 @@ fn read_config_file() -> Result<Config, Box<Error>> {
 fn get_user(client: &reqwest::Client, config: &Config)
     -> Result<ZoomUser, Box<Error>> {
 	let params = [
-	    ("api_key", &config.api_key),
-	    ("api_secret", &config.api_secret),
-	    ("email", &config.user),
-	    // FIXME: how to get a reference without cloning?
-	    ("data_type", &"JSON".to_string())
+	    ("api_key", &config.api_key as &str),
+	    ("api_secret", &config.api_secret as &str),
+	    ("email", &config.user as &str),
+	    ("data_type", "JSON")
 	];
 
 	let mut res = client.post("https://api.zoom.us/v1/user/getbyemail")
 	    .form(&params)
 	    .send()?;
 
-	// FIXME needed?
-	let user: ZoomUser = res.json()?;
-	Ok(user)
+	Ok(res.json()?)
 }
 
 fn get_meetings(client: &reqwest::Client, config: &Config,
     host_id: &String) -> Result<ZoomMeetings, Box<Error>> {
 
 	let params = [
-	    ("api_key", &config.api_key),
-	    ("api_secret", &config.api_secret),
-	    ("email", &config.user),
-	    ("host_id", host_id),
-	    ("page_size", &"10".to_string()), // FIXME?
-	    // FIXME: how to get a reference without cloning?
-	    ("data_type", &"JSON".to_string())
+	    ("api_key", &config.api_key as &str),
+	    ("api_secret", &config.api_secret as &str),
+	    ("email", &config.user as &str),
+	    ("host_id", host_id as &str),
+	    ("page_size", "10"),
+	    ("data_type", "JSON")
 	];
 
 	let mut res = client.post("https://api.zoom.us/v1/recording/list")
 	    .form(&params)
 	    .send()?;
 
-	let meetings: ZoomMeetings = res.json()?;
-	Ok(meetings)
+	Ok(res.json()?)
 }
 
 fn is_today<D: Datelike>(mtime: &D, tz: &Tz) -> bool {
@@ -151,7 +145,6 @@ fn download(client: &reqwest::Client, url: &str, outfile: &PathBuf) ->
 	Ok(())
 }
 
-// FIXME unwraps
 fn download_meeting(client: &reqwest::Client, config: &Config,
     meeting: &ZoomMeeting, mtime: &DateTime<FixedOffset>,
     tz: &Tz) -> () {
@@ -163,9 +156,9 @@ fn download_meeting(client: &reqwest::Client, config: &Config,
 	for recording in &meeting.recording_files {
 		let suffix = ".".to_string() +
 		    &recording.file_type.to_ascii_lowercase();
-		// FIXME: best way?
 		let mut outfile = dir.clone();
-		outfile.push(ltime.format("%H.%M").to_string() + &suffix);
+		outfile.push(ltime.format("%H.%M").to_string() +
+		    &suffix);
 
 		if outfile.exists() {
 			continue;
@@ -174,20 +167,12 @@ fn download_meeting(client: &reqwest::Client, config: &Config,
 		println!("Downloading {} file for meeting at {}",
 		    suffix, ltime);
 
-		download(&client, &recording.download_url, &outfile).unwrap();
+		download(&client, &recording.download_url,
+		    &outfile).unwrap();
 	}
 }
 
-fn main() {
-
-	let config = match read_config_file() {
-		Ok(config) => config,
-		Err(err) => {
-			eprintln!("Failed to read config file: {}", err);
-			process::exit(1);
-		}
-	};
-
+fn run(config: &Config) -> Result<(), Box<Error>> {
 	let now = Local::now();
 
 	println!("{}: downloading meetings for user {} to {}",
@@ -195,32 +180,42 @@ fn main() {
 
 	let client = reqwest::Client::new();
 
-	let user = match get_user(&client, &config) {
-		Ok(user) => user,
-		Err(err) => {
-			eprintln!("{}", err);
-			process::exit(1);
-		}
-	};
+	let user = get_user(&client, &config)?;
 
-	let meetings = match get_meetings(&client, &config, &user.id) {
-		Ok(meetings) => meetings,
-		Err(err) => {
-			eprintln!("{}", err);
-			process::exit(1);
-		}
-	};
+	let meetings = get_meetings(&client, &config, &user.id)?;
 
 	for meeting in meetings.meetings {
-		// FIXME: fix unwraps
-		let tz: Tz = meeting.timezone.parse().unwrap();
+		let tz: Tz = meeting.timezone.parse()?;
 		let mtime = DateTime::parse_from_rfc3339(
-		    &meeting.start_time).unwrap();
+		    &meeting.start_time)?;
 
 		if !is_today(&mtime, &tz) {
 			continue;
 		}
 
-		download_meeting(&client, &config, &meeting, &mtime, &tz);
+		download_meeting(&client, &config, &meeting,
+		    &mtime, &tz);
+	}
+
+	Ok(())
+}
+
+fn main() {
+
+	let config = match read_config_file() {
+		Ok(config) => config,
+		Err(err) => {
+			eprintln!("Failed to read config file: {}",
+			    err);
+			process::exit(1);
+		}
+	};
+
+	match run(&config) {
+		Ok(()) => (),
+		Err(err) => {
+			eprintln!("{}", err);
+			process::exit(1);
+		}
 	}
 }
