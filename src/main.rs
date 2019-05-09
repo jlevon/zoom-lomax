@@ -1,0 +1,226 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
+/*
+ * Copyright 2019 John Levon <levon@movementarian.org>
+ */
+
+use std::error::Error;
+use std::fmt;
+use std::fs;
+use std::io;
+use std::path::PathBuf;
+use std::process;
+
+use chrono::{Datelike, DateTime, FixedOffset, Local, Utc};
+use chrono_tz::Tz;
+use dirs;
+use reqwest;
+use serde::Deserialize;
+use serde_json;
+
+#[derive(Debug)]
+struct NoHomeDirError;
+
+impl Error for NoHomeDirError {}
+
+/* FIXME: do we really have to be ridiculously verbose?? */
+impl fmt::Display for NoHomeDirError {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "couldn't locate home directory")
+	}
+}
+
+#[derive(Deserialize, Debug)]
+struct Config {
+	api_key: String,
+	api_secret: String,
+	/* FIXME: email address - do we need to parse as such? */
+	user: String,
+	output_dir: String
+}
+
+/*
+ * These only contains the minimum we need.
+ */
+
+#[derive(Deserialize, Debug)]
+struct ZoomUser {
+	id: String
+}
+
+#[derive(Deserialize, Debug)]
+struct ZoomRecordingFile {
+	file_type: String,
+	download_url: String
+}
+
+#[derive(Deserialize, Debug)]
+struct ZoomMeeting {
+	start_time: String,
+	timezone: String,
+	recording_files: Vec<ZoomRecordingFile>
+}
+
+#[derive(Deserialize, Debug)]
+struct ZoomMeetings {
+	meetings: Vec<ZoomMeeting>
+}
+
+fn read_config_file() -> Result<Config, Box<Error>> {
+	let home = match dirs::home_dir() {
+		Some(path) => path,
+		None => return Err(Box::new(NoHomeDirError))
+	};
+
+	let mut cfg_file = home;
+        cfg_file.push(".zoom-lomax");
+
+	let file = fs::File::open(cfg_file)?;
+	let config = serde_json::from_reader(file)?;
+
+	Ok(config)
+}
+
+fn get_user(client: &reqwest::Client, config: &Config)
+    -> Result<ZoomUser, Box<Error>> {
+	let params = [
+	    ("api_key", &config.api_key),
+	    ("api_secret", &config.api_secret),
+	    ("email", &config.user),
+	    // FIXME: how to get a reference without cloning?
+	    ("data_type", &"JSON".to_string())
+	];
+
+	let mut res = client.post("https://api.zoom.us/v1/user/getbyemail")
+	    .form(&params)
+	    .send()?;
+
+	// FIXME needed?
+	let user: ZoomUser = res.json()?;
+	Ok(user)
+}
+
+fn get_meetings(client: &reqwest::Client, config: &Config,
+    host_id: &String) -> Result<ZoomMeetings, Box<Error>> {
+
+	let params = [
+	    ("api_key", &config.api_key),
+	    ("api_secret", &config.api_secret),
+	    ("email", &config.user),
+	    ("host_id", host_id),
+	    ("page_size", &"10".to_string()), // FIXME?
+	    // FIXME: how to get a reference without cloning?
+	    ("data_type", &"JSON".to_string())
+	];
+
+	let mut res = client.post("https://api.zoom.us/v1/recording/list")
+	    .form(&params)
+	    .send()?;
+
+	let meetings: ZoomMeetings = res.json()?;
+	Ok(meetings)
+}
+
+fn is_today<D: Datelike>(mtime: &D, tz: &Tz) -> bool {
+	let lnow = Utc::now().with_timezone(tz);
+
+	mtime.year() == lnow.year() &&
+	    mtime.month() == lnow.month() &&
+	    mtime.day() == lnow.day()
+}
+
+fn create_meeting_dir(config: &Config, mtime: &DateTime<FixedOffset>) ->
+    std::io::Result<PathBuf> {
+	let mut dir = PathBuf::from(&config.output_dir);
+	dir.push(mtime.format("%Y-%m-%d").to_string());
+
+	fs::create_dir_all(&dir)?;
+	Ok(dir)
+}
+
+fn download(client: &reqwest::Client, url: &str, outfile: &PathBuf) ->
+    Result<(), Box<Error>> {
+	let mut out = fs::File::create(outfile)?;
+	let mut resp = client.get(url).send()?;
+
+	io::copy(&mut resp, &mut out)?;
+	Ok(())
+}
+
+// FIXME unwraps
+fn download_meeting(client: &reqwest::Client, config: &Config,
+    meeting: &ZoomMeeting, mtime: &DateTime<FixedOffset>,
+    tz: &Tz) -> () {
+
+	let dir = create_meeting_dir(&config, &mtime).unwrap();
+
+	let ltime = mtime.with_timezone(tz);
+
+	for recording in &meeting.recording_files {
+		let suffix = ".".to_string() +
+		    &recording.file_type.to_ascii_lowercase();
+		// FIXME: best way?
+		let mut outfile = dir.clone();
+		outfile.push(ltime.format("%H.%M").to_string() + &suffix);
+
+		if outfile.exists() {
+			continue;
+		}
+
+		println!("Downloading {} file for meeting at {}",
+		    suffix, ltime);
+
+		download(&client, &recording.download_url, &outfile).unwrap();
+	}
+}
+
+fn main() {
+
+	let config = match read_config_file() {
+		Ok(config) => config,
+		Err(err) => {
+			eprintln!("Failed to read config file: {}", err);
+			process::exit(1);
+		}
+	};
+
+	let now = Local::now();
+
+	println!("{}: downloading meetings for user {} to {}",
+	    now.format("%Y-%m-%d"), config.user, config.output_dir);
+
+	let client = reqwest::Client::new();
+
+	let user = match get_user(&client, &config) {
+		Ok(user) => user,
+		Err(err) => {
+			eprintln!("{}", err);
+			process::exit(1);
+		}
+	};
+
+	let meetings = match get_meetings(&client, &config, &user.id) {
+		Ok(meetings) => meetings,
+		Err(err) => {
+			eprintln!("{}", err);
+			process::exit(1);
+		}
+	};
+
+	for meeting in meetings.meetings {
+		// FIXME: fix unwraps
+		let tz: Tz = meeting.timezone.parse().unwrap();
+		let mtime = DateTime::parse_from_rfc3339(
+		    &meeting.start_time).unwrap();
+
+		if !is_today(&mtime, &tz) {
+			continue;
+		}
+
+		download_meeting(&client, &config, &meeting, &mtime, &tz);
+	}
+}
