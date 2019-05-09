@@ -211,11 +211,8 @@ fn main() {
 		}
 	};
 
-	match run(&config) {
-		Ok(()) => (),
-		Err(err) => {
-			eprintln!("{}", err);
-			process::exit(1);
-		}
+	if let Err(err) = run(&config) {
+		eprintln!("{}", err);
+		process::exit(1);
 	}
 }
