@@ -12,14 +12,14 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path;
 use std::process;
 
 use chrono::{Datelike, DateTime, FixedOffset, Local, Utc};
 use chrono_tz::Tz;
 use dirs;
 use reqwest;
-use serde::Deserialize;
+use serde;
 use serde_json;
 
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl fmt::Display for NoHomeDirError {
 	}
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct Config {
 	api_key: String,
 	api_secret: String,
@@ -46,25 +46,25 @@ struct Config {
  * These only contains the minimum we need.
  */
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct ZoomUser {
 	id: String
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct ZoomRecordingFile {
 	file_type: String,
 	download_url: String
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct ZoomMeeting {
 	start_time: String,
 	timezone: String,
 	recording_files: Vec<ZoomRecordingFile>
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct ZoomMeetings {
 	meetings: Vec<ZoomMeeting>
 }
@@ -128,16 +128,16 @@ fn is_today<D: Datelike>(mtime: &D, tz: &Tz) -> bool {
 }
 
 fn create_meeting_dir(config: &Config, mtime: &DateTime<FixedOffset>) ->
-    std::io::Result<PathBuf> {
-	let mut dir = PathBuf::from(&config.output_dir);
+    std::io::Result<path::PathBuf> {
+	let mut dir = path::PathBuf::from(&config.output_dir);
 	dir.push(mtime.format("%Y-%m-%d").to_string());
 
 	fs::create_dir_all(&dir)?;
 	Ok(dir)
 }
 
-fn download(client: &reqwest::Client, url: &str, outfile: &PathBuf) ->
-    Result<(), Box<Error>> {
+fn download(client: &reqwest::Client, url: &str,
+    outfile: &path::PathBuf) -> Result<(), Box<Error>> {
 	let mut out = fs::File::create(outfile)?;
 	let mut resp = client.get(url).send()?;
 

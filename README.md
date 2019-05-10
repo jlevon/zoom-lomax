@@ -22,3 +22,17 @@ steps described here:
 https://marketplace.zoom.us/docs/sdk/native-sdks/preface/sdk-keys-secrets
 
 under "Create new SDK credentials".
+
+## Building and running
+
+Written in Rust; after installing Rust with `rustup`, build with:
+
+```
+$ cargo build
+```
+
+and run with:
+
+```
+$ cargo run
+```
