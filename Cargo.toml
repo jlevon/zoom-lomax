@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["John Levon <levon@movementarian.org>"]
 edition = "2018"
 
+[profile.dev]
+panic = "abort"
+
 [dependencies]
 chrono = "0.4"
 chrono-tz = "0.4"
