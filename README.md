@@ -1,10 +1,10 @@
-# zoom-lomax: download daily recordings
+# zoom-lomax: download Zoom recordings
 
 This is a very simple utility, designed to be run from cron daily,
-which will collect the day's "field recordings" from your Zoom acccount.
+which will collect "field recordings" from your Zoom acccount.
 
-It's currently hard-coded to download any files recorded on the day it
-runs (with respect to the timezone of the recording).
+It will download any recordings found in the last "days" days, as
+calculated with the meeting's local timezone.
 
 To use, populate ~/.zoom-lomax like this:
 
@@ -12,7 +12,8 @@ To use, populate ~/.zoom-lomax like this:
         "api_key": "sdk_api_key",
         "api_secret": "sdk_api_secret",
         "user": "zoom_user_email@you.com",
-        "output_dir": "/home/user/zoom-recordings/"
+        "output_dir": "/home/user/zoom-recordings/",
+        "days": 1
     }
 
 They don't make it obvious, but you will need a Pro account in order to

@@ -15,7 +15,7 @@ use std::io;
 use std::path;
 use std::process;
 
-use chrono::{Datelike, DateTime, FixedOffset, Local, Utc};
+use chrono::{DateTime, Duration, Local, Utc};
 use chrono_tz::Tz;
 use dirs;
 use reqwest;
@@ -39,7 +39,8 @@ struct Config {
 	api_secret: String,
 	// FIXME: email address - should we parse as such?
 	user: String,
-	output_dir: String
+	output_dir: String,
+	days: i64
 }
 
 /*
@@ -108,7 +109,7 @@ fn get_meetings(client: &reqwest::Client, config: &Config,
 	    ("api_secret", &config.api_secret as &str),
 	    ("email", &config.user as &str),
 	    ("host_id", host_id as &str),
-	    ("page_size", "10"),
+	    ("page_size", "100"),
 	    ("data_type", "JSON")
 	];
 
@@ -119,15 +120,14 @@ fn get_meetings(client: &reqwest::Client, config: &Config,
 	Ok(res.json()?)
 }
 
-fn is_today<D: Datelike>(mtime: &D, tz: &Tz) -> bool {
-	let lnow = Utc::now().with_timezone(tz);
+fn in_days_range(mtime: &DateTime<Tz>, days: i64) -> bool {
+	let ctime = Utc::now().with_timezone(&mtime.timezone())
+	    - Duration::days(days);
 
-	mtime.year() == lnow.year() &&
-	    mtime.month() == lnow.month() &&
-	    mtime.day() == lnow.day()
+	mtime > &ctime
 }
 
-fn create_meeting_dir(config: &Config, mtime: &DateTime<FixedOffset>) ->
+fn create_meeting_dir(config: &Config, mtime: &DateTime<Tz>) ->
     std::io::Result<path::PathBuf> {
 	let mut dir = path::PathBuf::from(&config.output_dir);
 	dir.push(mtime.format("%Y-%m-%d").to_string());
@@ -146,18 +146,14 @@ fn download(client: &reqwest::Client, url: &str,
 }
 
 fn download_meeting(client: &reqwest::Client, config: &Config,
-    meeting: &ZoomMeeting, mtime: &DateTime<FixedOffset>,
-    tz: &Tz) -> () {
-
+    meeting: &ZoomMeeting, mtime: &DateTime<Tz>) -> () {
 	let dir = create_meeting_dir(&config, &mtime).unwrap();
-
-	let ltime = mtime.with_timezone(tz);
 
 	for recording in &meeting.recording_files {
 		let suffix = ".".to_string() +
 		    &recording.file_type.to_ascii_lowercase();
 		let mut outfile = dir.clone();
-		outfile.push(ltime.format("%H.%M").to_string() +
+		outfile.push(mtime.format("%H.%M").to_string() +
 		    &suffix);
 
 		if outfile.exists() {
@@ -165,7 +161,7 @@ fn download_meeting(client: &reqwest::Client, config: &Config,
 		}
 
 		println!("Downloading {} file for meeting at {}",
-		    suffix, ltime);
+		    suffix, mtime);
 
 		download(&client, &recording.download_url,
 		    &outfile).unwrap();
@@ -175,8 +171,9 @@ fn download_meeting(client: &reqwest::Client, config: &Config,
 fn run(config: &Config) -> Result<(), Box<Error>> {
 	let now = Local::now();
 
-	println!("{}: downloading meetings for user {} to {}",
-	    now.format("%Y-%m-%d"), config.user, config.output_dir);
+	println!("{}: downloading {}'s meetings for past {} days to {}",
+	    now.format("%Y-%m-%d"), config.user, config.days,
+	    config.output_dir);
 
 	let client = reqwest::Client::new();
 
@@ -185,16 +182,19 @@ fn run(config: &Config) -> Result<(), Box<Error>> {
 	let meetings = get_meetings(&client, &config, &user.id)?;
 
 	for meeting in meetings.meetings {
+		/*
+		 * start_time is in UTC; we'll convert to local meeting
+		 * time here.
+		 */
 		let tz: Tz = meeting.timezone.parse()?;
 		let mtime = DateTime::parse_from_rfc3339(
-		    &meeting.start_time)?;
+		    &meeting.start_time)?.with_timezone(&tz);
 
-		if !is_today(&mtime, &tz) {
+		if !in_days_range(&mtime, config.days) {
 			continue;
 		}
 
-		download_meeting(&client, &config, &meeting,
-		    &mtime, &tz);
+		download_meeting(&client, &config, &meeting, &mtime);
 	}
 
 	Ok(())
