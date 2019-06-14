@@ -15,6 +15,8 @@ use std::io;
 use std::path;
 use std::process;
 
+use lettre::{Transport, SendmailTransport};
+use lettre_email::EmailBuilder;
 use chrono::{DateTime, Duration, Local, Utc};
 use chrono_tz::Tz;
 use dirs;
@@ -40,7 +42,10 @@ struct Config {
 	// FIXME: email address - should we parse as such?
 	user: String,
 	output_dir: String,
-	days: i64
+	days: i64,
+	// FIXME: email address - should we parse as such?
+	 #[serde(default)]
+	notify: String
 }
 
 /*
@@ -146,7 +151,8 @@ fn download(client: &reqwest::Client, url: &str,
 }
 
 fn download_meeting(client: &reqwest::Client, config: &Config,
-    meeting: &ZoomMeeting, mtime: &DateTime<Tz>) -> () {
+    mlist: &mut Vec<String>, meeting: &ZoomMeeting,
+    mtime: &DateTime<Tz>) -> () {
 	let dir = create_meeting_dir(&config, &mtime).unwrap();
 
 	for recording in &meeting.recording_files {
@@ -163,22 +169,51 @@ fn download_meeting(client: &reqwest::Client, config: &Config,
 		println!("Downloading {} file for meeting at {}",
 		    suffix, mtime);
 
+		mlist.push(outfile.to_string_lossy().to_string());
+
 		download(&client, &recording.download_url,
 		    &outfile).unwrap();
 	}
 }
 
+fn send_notification(recipient: &str, mlist: Vec<String>) {
+	let now = Local::now().format("%Y-%m-%d");
+	let subject = format!("{}: new Zoom recordings", now);
+
+	let mut body = "New Zoom recordings are available:\n\n"
+	    .to_owned();
+
+	for file in mlist {
+		body += &format!("{}\n", file);
+	}
+
+	let email = EmailBuilder::new()
+	    .to(recipient)
+	    .from("zoom-lomax@movementarian.org")
+	    .subject(subject)
+	    .text(body)
+	    .build()
+	    .unwrap();
+
+	let result = SendmailTransport::new()
+	    .send(email.into());
+
+	if !result.is_ok() {
+		eprintln!("Couldn't send email to {}: {:?}",
+		    recipient, result);
+	}
+}
+
 fn run(config: &Config) -> Result<(), Box<Error>> {
 	let now = Local::now();
+	let mut mlist = Vec::new();
 
 	println!("{}: downloading {}'s meetings for past {} days to {}",
 	    now.format("%Y-%m-%d"), config.user, config.days,
 	    config.output_dir);
 
 	let client = reqwest::Client::new();
-
 	let user = get_user(&client, &config)?;
-
 	let meetings = get_meetings(&client, &config, &user.id)?;
 
 	for meeting in meetings.meetings {
@@ -194,7 +229,12 @@ fn run(config: &Config) -> Result<(), Box<Error>> {
 			continue;
 		}
 
-		download_meeting(&client, &config, &meeting, &mtime);
+		download_meeting(&client, &config, &mut mlist,
+		    &meeting, &mtime);
+	}
+
+	if mlist.len() > 0 && !config.notify.is_empty() {
+		send_notification(&config.notify, mlist);
 	}
 
 	Ok(())
