@@ -11,9 +11,11 @@ To use, populate ~/.zoom-lomax like this:
     {
         "api_key": "sdk_api_key",
         "api_secret": "sdk_api_secret",
-        "user": "zoom_user_email@you.com",
+        "user": "zoom_user_email@example.com",
         "output_dir": "/home/user/zoom-recordings/",
-        "days": 1
+        "days": 1,
+        # optional
+        "notify": "you@example.com"
     }
 
 They don't make it obvious, but you will need a Pro account in order to
