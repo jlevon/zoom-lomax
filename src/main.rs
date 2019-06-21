@@ -17,7 +17,7 @@ use std::process;
 
 use lettre::{Transport, SendmailTransport};
 use lettre_email::EmailBuilder;
-use chrono::{DateTime, Duration, Local, Utc};
+use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use chrono_tz::Tz;
 use dirs;
 use reqwest;
@@ -132,6 +132,26 @@ fn in_days_range(mtime: &DateTime<Tz>, days: i64) -> bool {
 	mtime > &ctime
 }
 
+/*
+ * Round a time like 09:58 to 10:00.
+ */
+fn round_time_to_hour(mtime: &mut DateTime<Tz>) {
+	let minute = mtime.minute();
+	const FUDGE: u32 = 5;
+	let one_hour = Duration::hours(1);
+
+	if minute >= 60 - FUDGE {
+		mtime.clone_from(&(mtime
+		    .with_minute(0).unwrap()
+		    .with_second(0).unwrap()
+		    + one_hour));
+	} else if minute <= FUDGE {
+		mtime.clone_from(&(mtime
+		    .with_minute(0).unwrap()
+		    .with_second(0).unwrap()));
+	}
+}
+
 fn create_meeting_dir(config: &Config, mtime: &DateTime<Tz>) ->
     std::io::Result<path::PathBuf> {
 	let mut dir = path::PathBuf::from(&config.output_dir);
@@ -222,12 +242,14 @@ fn run(config: &Config) -> Result<(), Box<dyn Error>> {
 		 * time here.
 		 */
 		let tz: Tz = meeting.timezone.parse()?;
-		let mtime = DateTime::parse_from_rfc3339(
+		let mut mtime = DateTime::parse_from_rfc3339(
 		    &meeting.start_time)?.with_timezone(&tz);
 
 		if !in_days_range(&mtime, config.days) {
 			continue;
 		}
+
+		round_time_to_hour(&mut mtime);
 
 		download_meeting(&client, &config, &mut mlist,
 		    &meeting, &mtime);
