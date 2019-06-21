@@ -75,7 +75,7 @@ struct ZoomMeetings {
 	meetings: Vec<ZoomMeeting>
 }
 
-fn read_config_file() -> Result<Config, Box<Error>> {
+fn read_config_file() -> Result<Config, Box<dyn Error>> {
 	let home = match dirs::home_dir() {
 		Some(path) => path,
 		None => return Err(Box::new(NoHomeDirError))
@@ -91,7 +91,7 @@ fn read_config_file() -> Result<Config, Box<Error>> {
 }
 
 fn get_user(client: &reqwest::Client, config: &Config)
-    -> Result<ZoomUser, Box<Error>> {
+    -> Result<ZoomUser, Box<dyn Error>> {
 	let params = [
 	    ("api_key", &config.api_key as &str),
 	    ("api_secret", &config.api_secret as &str),
@@ -107,7 +107,7 @@ fn get_user(client: &reqwest::Client, config: &Config)
 }
 
 fn get_meetings(client: &reqwest::Client, config: &Config,
-    host_id: &String) -> Result<ZoomMeetings, Box<Error>> {
+    host_id: &String) -> Result<ZoomMeetings, Box<dyn Error>> {
 
 	let params = [
 	    ("api_key", &config.api_key as &str),
@@ -142,7 +142,7 @@ fn create_meeting_dir(config: &Config, mtime: &DateTime<Tz>) ->
 }
 
 fn download(client: &reqwest::Client, url: &str,
-    outfile: &path::PathBuf) -> Result<(), Box<Error>> {
+    outfile: &path::PathBuf) -> Result<(), Box<dyn Error>> {
 	let mut out = fs::File::create(outfile)?;
 	let mut resp = client.get(url).send()?;
 
@@ -204,7 +204,7 @@ fn send_notification(recipient: &str, mlist: Vec<String>) {
 	}
 }
 
-fn run(config: &Config) -> Result<(), Box<Error>> {
+fn run(config: &Config) -> Result<(), Box<dyn Error>> {
 	let now = Local::now();
 	let mut mlist = Vec::new();
 
