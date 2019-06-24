@@ -1,6 +1,6 @@
 [package]
 name = "zoom-lomax"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["John Levon <levon@movementarian.org>"]
 edition = "2018"
 
@@ -10,6 +10,7 @@ panic = "abort"
 [dependencies]
 chrono = "0.4"
 chrono-tz = "0.4"
+clap = "2.33.0"
 dirs = "1.0.0"
 failure = "0.1.5"
 failure_derive = "0.1.5"

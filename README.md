@@ -18,6 +18,9 @@ To use, populate ~/.zoom-lomax like this:
         "notify": "you@example.com"
     }
 
+(You can also use the `-c` command-line option to specify a different
+config file.)
+
 They don't make it obvious, but you will need a Pro account in order to
 be able to get the key and secret. The account owner has to follow the
 steps described here:

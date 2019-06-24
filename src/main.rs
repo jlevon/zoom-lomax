@@ -8,22 +8,25 @@
  * Copyright 2019 John Levon <levon@movementarian.org>
  */
 
+#[macro_use] extern crate failure;
+
 use std::fs;
 use std::io;
 use std::path;
 use std::process;
 
-use lettre::{Transport, SendmailTransport};
-use lettre_email::EmailBuilder;
 use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use chrono_tz::Tz;
+use clap;
 use dirs;
+use failure::{Error, err_msg};
+use lettre::{Transport, SendmailTransport};
+use lettre_email::EmailBuilder;
 use reqwest;
 use serde;
 use serde_json;
-use failure::{Error, err_msg};
 
-#[macro_use] extern crate failure;
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 #[derive(Fail, Debug)]
 #[fail(display = "couldn't locate home directory")]
@@ -69,12 +72,14 @@ struct ZoomMeetings {
 	meetings: Vec<ZoomMeeting>
 }
 
-fn read_config_file() -> Result<Config, Error> {
+fn get_default_config_file() -> Result<path::PathBuf, Error> {
 	let home = dirs::home_dir().ok_or(NoHomeDirError)?;
-
 	let mut cfg_file = home;
-        cfg_file.push(".zoom-lomax");
+	cfg_file.push(".zoom-lomax");
+	Ok(cfg_file)
+}
 
+fn read_config_file(cfg_file: &path::PathBuf) -> Result<Config, Error> {
 	let file = fs::File::open(cfg_file)?;
 	let config = serde_json::from_reader(file)?;
 
@@ -215,7 +220,16 @@ fn send_notification(recipient: &str, mlist: Vec<String>) {
 	}
 }
 
-fn run(config: &Config) -> Result<(), Error> {
+fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
+
+	let mut config_file = get_default_config_file()?;
+
+	if let Some(file) = matches.value_of("config") {
+		config_file = file.into();
+	}
+
+	let config = read_config_file(&config_file)?;
+
 	let now = Local::now();
 	let mut mlist = Vec::new();
 
@@ -257,16 +271,18 @@ fn run(config: &Config) -> Result<(), Error> {
 
 fn main() {
 
-	let config = match read_config_file() {
-		Ok(config) => config,
-		Err(err) => {
-			eprintln!("Failed to read config file: {}",
-			    err);
-			process::exit(1);
-		}
-	};
+	let matches = clap::App::new("zoom-lomax")
+	    .version(VERSION)
+	    .about("Field recorder for Zoom")
+	    .arg(clap::Arg::with_name("config")
+	    .short("c")
+	    .long("config")
+	    .value_name("FILE")
+	    .help("Alternative config file")
+	    .takes_value(true))
+	    .get_matches();
 
-	if let Err(err) = run(&config) {
+	if let Err(err) = run(&matches) {
 		eprintln!("{}", err);
 		process::exit(1);
 	}
