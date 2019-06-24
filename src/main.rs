@@ -8,8 +8,6 @@
  * Copyright 2019 John Levon <levon@movementarian.org>
  */
 
-use std::error::Error;
-use std::fmt;
 use std::fs;
 use std::io;
 use std::path;
@@ -23,17 +21,13 @@ use dirs;
 use reqwest;
 use serde;
 use serde_json;
+use failure::{Error, err_msg};
 
-#[derive(Debug)]
+#[macro_use] extern crate failure;
+
+#[derive(Fail, Debug)]
+#[fail(display = "couldn't locate home directory")]
 struct NoHomeDirError;
-
-impl Error for NoHomeDirError {}
-
-impl fmt::Display for NoHomeDirError {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "couldn't locate home directory")
-	}
-}
 
 #[derive(serde::Deserialize, Debug)]
 struct Config {
@@ -75,11 +69,8 @@ struct ZoomMeetings {
 	meetings: Vec<ZoomMeeting>
 }
 
-fn read_config_file() -> Result<Config, Box<dyn Error>> {
-	let home = match dirs::home_dir() {
-		Some(path) => path,
-		None => return Err(Box::new(NoHomeDirError))
-	};
+fn read_config_file() -> Result<Config, Error> {
+	let home = dirs::home_dir().ok_or(NoHomeDirError)?;
 
 	let mut cfg_file = home;
         cfg_file.push(".zoom-lomax");
@@ -91,7 +82,7 @@ fn read_config_file() -> Result<Config, Box<dyn Error>> {
 }
 
 fn get_user(client: &reqwest::Client, config: &Config)
-    -> Result<ZoomUser, Box<dyn Error>> {
+    -> Result<ZoomUser, Error> {
 	let params = [
 	    ("api_key", &config.api_key as &str),
 	    ("api_secret", &config.api_secret as &str),
@@ -107,7 +98,7 @@ fn get_user(client: &reqwest::Client, config: &Config)
 }
 
 fn get_meetings(client: &reqwest::Client, config: &Config,
-    host_id: &String) -> Result<ZoomMeetings, Box<dyn Error>> {
+    host_id: &String) -> Result<ZoomMeetings, Error> {
 
 	let params = [
 	    ("api_key", &config.api_key as &str),
@@ -162,7 +153,7 @@ fn create_meeting_dir(config: &Config, mtime: &DateTime<Tz>) ->
 }
 
 fn download(client: &reqwest::Client, url: &str,
-    outfile: &path::PathBuf) -> Result<(), Box<dyn Error>> {
+    outfile: &path::PathBuf) -> Result<(), Error> {
 	let mut out = fs::File::create(outfile)?;
 	let mut resp = client.get(url).send()?;
 
@@ -224,7 +215,7 @@ fn send_notification(recipient: &str, mlist: Vec<String>) {
 	}
 }
 
-fn run(config: &Config) -> Result<(), Box<dyn Error>> {
+fn run(config: &Config) -> Result<(), Error> {
 	let now = Local::now();
 	let mut mlist = Vec::new();
 
@@ -239,9 +230,11 @@ fn run(config: &Config) -> Result<(), Box<dyn Error>> {
 	for meeting in meetings.meetings {
 		/*
 		 * start_time is in UTC; we'll convert to local meeting
-		 * time here.
+		 * time here. Tz's FromStr has a String Err type, hence
+		 * the map_err().
 		 */
-		let tz: Tz = meeting.timezone.parse()?;
+		let tz: Tz = meeting.timezone.parse().map_err(err_msg)?;
+
 		let mut mtime = DateTime::parse_from_rfc3339(
 		    &meeting.start_time)?.with_timezone(&tz);
 
