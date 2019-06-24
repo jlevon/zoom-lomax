@@ -222,11 +222,9 @@ fn send_notification(recipient: &str, mlist: Vec<String>) {
 
 fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
 
-	let mut config_file = get_default_config_file()?;
-
-	if let Some(file) = matches.value_of("config") {
-		config_file = file.into();
-	}
+	let config_file = matches.value_of("config")
+	    .map(|s| path::PathBuf::from(s))
+	    .unwrap_or(get_default_config_file()?);
 
 	let config = read_config_file(&config_file)?;
 
