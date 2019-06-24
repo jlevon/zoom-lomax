@@ -27,7 +27,7 @@ use reqwest;
 use serde;
 use serde_json;
 
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Fail, Debug)]
 #[fail(display = "couldn't locate home directory")]
@@ -109,7 +109,7 @@ fn get_user(
 fn get_meetings(
 	client: &reqwest::Client,
 	config: &Config,
-	host_id: &String,
+	host_id: &str,
 ) -> Result<ZoomMeetings, Error> {
 	let params = [
 		("api_key", &config.api_key as &str),
@@ -132,7 +132,7 @@ fn in_days_range(mtime: &DateTime<Tz>, days: i64) -> bool {
 	let ctime = Utc::now().with_timezone(&mtime.timezone())
 		- Duration::days(days);
 
-	mtime > &ctime
+	*mtime > ctime
 }
 
 /*
@@ -189,7 +189,7 @@ fn download_meeting(
 	mlist: &mut Vec<String>,
 	meeting: &ZoomMeeting,
 	mtime: &DateTime<Tz>,
-) -> () {
+) {
 	let dir = create_meeting_dir(&config, &mtime).unwrap();
 
 	for recording in &meeting.recording_files {
@@ -233,7 +233,7 @@ fn send_notification(recipient: &str, mlist: Vec<String>) {
 
 	let result = SendmailTransport::new().send(email.into());
 
-	if !result.is_ok() {
+	if result.is_err() {
 		eprintln!("Couldn't send email to {}: {:?}", recipient, result);
 	}
 }
@@ -241,7 +241,7 @@ fn send_notification(recipient: &str, mlist: Vec<String>) {
 fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
 	let config_file = matches
 		.value_of("config")
-		.map(|s| path::PathBuf::from(s))
+		.map(path::PathBuf::from)
 		.unwrap_or(get_default_config_file()?);
 
 	let config = read_config_file(&config_file)?;
@@ -284,7 +284,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
 		);
 	}
 
-	if mlist.len() > 0 && !config.notify.is_empty() {
+	if !mlist.is_empty() && !config.notify.is_empty() {
 		send_notification(&config.notify, mlist);
 	}
 
