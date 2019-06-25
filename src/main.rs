@@ -15,6 +15,7 @@ use std::fs;
 use std::io;
 use std::path;
 use std::process;
+use std::str::FromStr;
 
 use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use chrono_tz::Tz;
@@ -22,7 +23,7 @@ use clap;
 use dirs;
 use failure::{err_msg, Error};
 use lettre::{SendmailTransport, Transport};
-use lettre_email::EmailBuilder;
+use lettre_email::{EmailBuilder, Mailbox};
 use reqwest;
 use serde;
 use serde_json;
@@ -37,12 +38,12 @@ struct NoHomeDirError;
 struct Config {
     api_key: String,
     api_secret: String,
-    // FIXME: email address - should we parse as such?
+    // this has to be of the form foo@bar.com, hence we don't use Mailbox
     user: String,
     output_dir: String,
     days: i64,
-    // FIXME: email address - should we parse as such?
-    notify: Option<String>,
+    #[serde(deserialize_with = "email_option_from_string")]
+    notify: Option<Mailbox>,
 }
 
 /*
@@ -72,6 +73,20 @@ struct ZoomMeetings {
     meetings: Vec<ZoomMeeting>,
 }
 
+fn email_option_from_string<'de, D>(deserializer: D) -> Result<Option<Mailbox>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = serde::Deserialize::deserialize(deserializer)?;
+    match Mailbox::from_str(&s) {
+        Ok(mbox) => Ok(Some(mbox)),
+        Err(_) => Err(serde::de::Error::custom(format!(
+            "invalid email address \"{}\"",
+            s
+        ))),
+    }
+}
+
 fn get_default_config_file() -> Result<path::PathBuf, Error> {
     let home = dirs::home_dir().ok_or(NoHomeDirError)?;
     let mut cfg_file = home;
@@ -90,7 +105,7 @@ fn get_user(client: &reqwest::Client, config: &Config) -> Result<ZoomUser, Error
     let params = [
         ("api_key", &config.api_key as &str),
         ("api_secret", &config.api_secret as &str),
-        ("email", &config.user as &str),
+        ("email", &config.user.to_string()),
         ("data_type", "JSON"),
     ];
 
@@ -110,7 +125,7 @@ fn get_meetings(
     let params = [
         ("api_key", &config.api_key as &str),
         ("api_secret", &config.api_secret as &str),
-        ("email", &config.user as &str),
+        ("email", &config.user.to_string()),
         ("host_id", host_id as &str),
         ("page_size", "100"),
         ("data_type", "JSON"),
@@ -187,7 +202,7 @@ fn download_meeting(
     }
 }
 
-fn send_notification(recipient: &str, mlist: Vec<String>) {
+fn send_notification(recipient: &Mailbox, mlist: Vec<String>) {
     let now = Local::now().format("%Y-%m-%d");
     let subject = format!("{}: new Zoom recordings", now);
 
@@ -198,7 +213,7 @@ fn send_notification(recipient: &str, mlist: Vec<String>) {
     }
 
     let email = EmailBuilder::new()
-        .to(recipient)
+        .to(recipient.clone())
         .from("zoom-lomax@movementarian.org")
         .subject(subject)
         .text(body)
