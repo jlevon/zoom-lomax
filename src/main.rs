@@ -42,8 +42,7 @@ struct Config {
     output_dir: String,
     days: i64,
     // FIXME: email address - should we parse as such?
-    #[serde(default)]
-    notify: String,
+    notify: Option<String>,
 }
 
 /*
@@ -255,8 +254,8 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
         download_meeting(&client, &config, &mut mlist, &meeting, &mtime);
     }
 
-    if !mlist.is_empty() && !config.notify.is_empty() {
-        send_notification(&config.notify, mlist);
+    if !mlist.is_empty() && config.notify.is_some() {
+        send_notification(&config.notify.unwrap(), mlist);
     }
 
     Ok(())
