@@ -34,6 +34,14 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[fail(display = "couldn't locate home directory")]
 struct NoHomeDirError;
 
+/*
+ * This only exists because we're not allowed to impl Deserialize for lettre_email::Mailbox.
+ */
+#[derive(Debug)]
+struct EmailAddress {
+    mailbox: Mailbox,
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct Config {
     api_key: String,
@@ -42,8 +50,7 @@ struct Config {
     user: String,
     output_dir: String,
     days: i64,
-    #[serde(deserialize_with = "email_option_from_string")]
-    notify: Option<Mailbox>,
+    notify: Option<EmailAddress>,
 }
 
 /*
@@ -73,17 +80,16 @@ struct ZoomMeetings {
     meetings: Vec<ZoomMeeting>,
 }
 
-fn email_option_from_string<'de, D>(deserializer: D) -> Result<Option<Mailbox>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: String = serde::Deserialize::deserialize(deserializer)?;
-    match Mailbox::from_str(&s) {
-        Ok(mbox) => Ok(Some(mbox)),
-        Err(_) => Err(serde::de::Error::custom(format!(
-            "invalid email address \"{}\"",
-            s
-        ))),
+impl<'de> serde::Deserialize<'de> for EmailAddress {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<EmailAddress, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        match Mailbox::from_str(&value) {
+            Ok(m) => Ok(EmailAddress { mailbox: m }),
+            Err(_) => Err(serde::de::Error::custom(format!(
+                "Invalid email adddress {:?}",
+                value
+            ))),
+        }
     }
 }
 
@@ -160,7 +166,7 @@ fn round_time_to_hour(mtime: &mut DateTime<Tz>) {
     }
 }
 
-fn create_meeting_dir(config: &Config, mtime: &DateTime<Tz>) -> std::io::Result<path::PathBuf> {
+fn create_meeting_dir(config: &Config, mtime: &DateTime<Tz>) -> io::Result<path::PathBuf> {
     let mut dir = path::PathBuf::from(&config.output_dir);
     dir.push(mtime.format("%Y-%m-%d").to_string());
 
@@ -270,7 +276,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
     }
 
     if !mlist.is_empty() && config.notify.is_some() {
-        send_notification(&config.notify.unwrap(), mlist);
+        send_notification(&config.notify.unwrap().mailbox, mlist);
     }
 
     Ok(())
