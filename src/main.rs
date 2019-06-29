@@ -14,19 +14,15 @@ use std::path;
 use std::process;
 use std::str::FromStr;
 
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate log;
-
 use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use chrono_tz::Tz;
 use clap;
 use dirs;
 use env_logger;
-use failure::{err_msg, Error};
+use failure::{err_msg, Error, Fail};
 use lettre::{SendmailTransport, Transport};
 use lettre_email::{EmailBuilder, Mailbox};
+use log::debug;
 use reqwest;
 use serde;
 use serde_json;
