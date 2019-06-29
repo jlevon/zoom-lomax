@@ -8,19 +8,22 @@
  * Copyright 2019 John Levon <levon@movementarian.org>
  */
 
-#[macro_use]
-extern crate failure;
-
 use std::fs;
 use std::io;
 use std::path;
 use std::process;
 use std::str::FromStr;
 
+#[macro_use]
+extern crate failure;
+#[macro_use]
+extern crate log;
+
 use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use chrono_tz::Tz;
 use clap;
 use dirs;
+use env_logger;
 use failure::{err_msg, Error};
 use lettre::{SendmailTransport, Transport};
 use lettre_email::{EmailBuilder, Mailbox};
@@ -104,6 +107,8 @@ fn read_config_file(cfg_file: &path::PathBuf) -> Result<Config, Error> {
     let file = fs::File::open(cfg_file)?;
     let config = serde_json::from_reader(file)?;
 
+    debug!("Parsed config as {:?}\n", config);
+
     Ok(config)
 }
 
@@ -120,7 +125,11 @@ fn get_user(client: &reqwest::Client, config: &Config) -> Result<ZoomUser, Error
         .form(&params)
         .send()?;
 
-    Ok(res.json()?)
+    let user = res.json()?;
+
+    debug!("Got user data: {:#?}\n", user);
+
+    Ok(user)
 }
 
 fn get_meetings(
@@ -142,7 +151,11 @@ fn get_meetings(
         .form(&params)
         .send()?;
 
-    Ok(res.json()?)
+    let mlist = res.json()?;
+
+    debug!("Got meeting list: {:#?}\n", mlist);
+
+    Ok(mlist)
 }
 
 fn in_days_range(mtime: &DateTime<Tz>, days: i64) -> bool {
@@ -178,7 +191,10 @@ fn download(client: &reqwest::Client, url: &str, outfile: &path::PathBuf) -> Res
     let mut out = fs::File::create(outfile)?;
     let mut resp = client.get(url).send()?;
 
+    debug!("Downloading {}\n", url);
     io::copy(&mut resp, &mut out)?;
+    debug!("Downloading {} completed\n", url);
+
     Ok(())
 }
 
@@ -226,6 +242,8 @@ fn send_notification(recipient: &Mailbox, mlist: Vec<String>) {
         .build()
         .unwrap();
 
+    debug!("Sending notification to {:?}\n", recipient);
+
     let result = SendmailTransport::new().send(email.into());
 
     if result.is_err() {
@@ -238,6 +256,8 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
         .value_of("config")
         .map(path::PathBuf::from)
         .unwrap_or(get_default_config_file()?);
+
+    debug!("using config file {}", config_file.display());
 
     let config = read_config_file(&config_file)?;
 
@@ -266,6 +286,8 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
 
         let mut mtime = DateTime::parse_from_rfc3339(&meeting.start_time)?.with_timezone(&tz);
 
+        debug!("Saw meeting {:#?}\n", meeting);
+
         if !in_days_range(&mtime, config.days) {
             continue;
         }
@@ -283,6 +305,8 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
 }
 
 fn main() {
+    env_logger::init();
+
     let matches = clap::App::new("zoom-lomax")
         .version(VERSION)
         .about("Field recorder for Zoom")
