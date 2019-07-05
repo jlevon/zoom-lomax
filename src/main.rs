@@ -8,6 +8,10 @@
  * Copyright 2019 John Levon <levon@movementarian.org>
  */
 
+//! # zoom-lomax: download recordings from Zoom.
+//!
+//! See [github](https://github.com/jlevon/zoom-lomax/) for details.
+
 use std::fs;
 use std::io;
 use std::path;
