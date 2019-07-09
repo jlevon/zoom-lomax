@@ -14,9 +14,10 @@ To use, populate ~/.zoom-lomax like this:
         "user": "zoom_user_email@example.com",
         "output_dir": "/home/user/zoom-recordings/",
         "days": 1,
-        # optional
         "notify": "Your Name <you@example.com>"
     }
+
+`days` and `notify` are optional, with the former defaulting to 1 day.
 
 (You can also use the `-c` command-line option to specify a different
 config file.)

@@ -45,6 +45,10 @@ struct EmailAddress {
     mailbox: Mailbox,
 }
 
+fn default_days() -> i64 {
+    1
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct Config {
     api_key: String,
@@ -52,6 +56,7 @@ struct Config {
     // this has to be of the form foo@bar.com, hence we don't use Mailbox
     user: String,
     output_dir: String,
+    #[serde(default = "default_days")]
     days: i64,
     notify: Option<EmailAddress>,
 }
