@@ -41,9 +41,7 @@ struct NoHomeDirError;
  * This only exists because we're not allowed to impl Deserialize for lettre_email::Mailbox.
  */
 #[derive(Debug)]
-struct EmailAddress {
-    mailbox: Mailbox,
-}
+struct EmailAddress(Mailbox);
 
 fn default_days() -> i64 {
     1
@@ -92,7 +90,7 @@ impl<'de> serde::Deserialize<'de> for EmailAddress {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<EmailAddress, D::Error> {
         let value = String::deserialize(deserializer)?;
         match Mailbox::from_str(&value) {
-            Ok(m) => Ok(EmailAddress { mailbox: m }),
+            Ok(m) => Ok(EmailAddress(m)),
             Err(_) => Err(serde::de::Error::custom(format!(
                 "Invalid email adddress {:?}",
                 value
@@ -303,7 +301,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
     }
 
     if !mlist.is_empty() && config.notify.is_some() {
-        send_notification(&config.notify.unwrap().mailbox, mlist);
+        send_notification(&config.notify.unwrap().0, mlist);
     }
 
     Ok(())
