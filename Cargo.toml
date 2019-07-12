@@ -9,6 +9,9 @@ repository = "https://github.com/jlevon/zoom-lomax"
 edition = "2018"
 license = "MIT"
 
+[badges]
+travis-ci = { repository = "jlevon/zoom-lomax" }
+
 [profile.dev]
 panic = "abort"
 
