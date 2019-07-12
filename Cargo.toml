@@ -1,6 +1,6 @@
 [package]
 name = "zoom-lomax"
-version = "0.2.0"
+version = "0.2.1"
 description = "Download Zoom recordings"
 authors = [ "John Levon <levon@movementarian.org>" ]
 readme = "README.md"

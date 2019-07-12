@@ -41,5 +41,5 @@ $ cargo build
 and run with:
 
 ```
-$ cargo run
+$ ./target/debug/zoom-lomax
 ```
