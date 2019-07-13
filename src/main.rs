@@ -106,9 +106,8 @@ fn get_default_config_file() -> Result<path::PathBuf, Error> {
     Ok(cfg_file)
 }
 
-fn read_config_file(cfg_file: &path::PathBuf) -> Result<Config, Error> {
-    let file = fs::File::open(cfg_file)?;
-    let config = serde_json::from_reader(file)?;
+fn read_config(reader: impl io::Read) -> Result<Config, Error> {
+    let config = serde_json::from_reader(reader)?;
 
     debug!("Parsed config as {:?}\n", config);
 
@@ -262,7 +261,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
 
     debug!("using config file {}", config_file.display());
 
-    let config = read_config_file(&config_file)?;
+    let config = read_config(fs::File::open(config_file)?)?;
 
     let now = Local::now();
     let mut mlist = Vec::new();
@@ -327,6 +326,86 @@ fn main() {
         eprintln!("{}", err);
         process::exit(1);
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_invalid_config() {
+        read_config("".as_bytes()).expect_err("should fail");
+        read_config("foo".as_bytes()).expect_err("should fail");
+        read_config("{".as_bytes()).expect_err("should fail");
+        read_config("{}".as_bytes()).expect_err("should fail");
+        read_config(
+            r#"{
+            "api_key": "key",
+            "api_secret": "secret",
+            "user": "user@example.com"
+        }"#
+            .as_bytes(),
+        )
+        .expect_err("should fail");
+        read_config(
+            r#"{
+            "api_key": "key",
+            "api_secret": "secret",
+            "output_dir": "/home/me/dir",
+            "user": "user@example.com",
+            "notify": "<user@foo.com"
+        }"#
+            .as_bytes(),
+        )
+        .expect_err("should fail");
+        read_config(
+            r#"{
+            "api_key": "key",
+            "api_secret": "secret",
+            "output_dir": "/home/me/dir",
+            "user": "user@example.com",
+            "days", "foo"
+        }"#
+            .as_bytes(),
+        )
+        .expect_err("should fail");
+        /* FIXME: bug in rust-email
+                read_config(r#"{
+                    "api_key": "key",
+                    "api_secret": "secret",
+                    "output_dir": "/home/me/dir",
+                    "user": "user@example.com",
+                    "notify": "user@"
+                }"#.as_bytes()).expect_err("should fail");
+        */
+    }
+
+    #[test]
+    fn test_valid_config() {
+        read_config(
+            r#"{
+            "api_key": "key",
+            "api_secret": "secret",
+            "output_dir": "/home/me/dir",
+            "user": "user@example.com"
+        }"#
+            .as_bytes(),
+        )
+        .expect("missing notify and days");
+        read_config(
+            r#"{
+            "api_key": "key",
+            "api_secret": "secret",
+            "output_dir": "/home/me/dir",
+            "user": "user@example.com",
+            "notify": "My name <user@example.com>",
+            "days": 4
+        }"#
+            .as_bytes(),
+        )
+        .expect("fully specified");
+    }
+
 }
 
 // vim: tabstop=4:shiftwidth=4:textwidth=100:expandtab
