@@ -1718,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "zoom-lomax"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono-tz 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",

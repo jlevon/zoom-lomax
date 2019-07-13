@@ -2,5 +2,12 @@ language: rust
 rust:
  - stable
  - nightly
+install:
+ - rustup component add clippy-preview
+ - rustup component add rustfmt-preview
+script:
+ - cargo fmt -- --check
+ - cargo clippy -- -D warnings
+ - cargo test
 
 cache: cargo
