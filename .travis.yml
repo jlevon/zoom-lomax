@@ -3,7 +3,7 @@ rust:
  - stable
  - nightly
 install:
- - rustup component add clippy-preview
+ - rustup component add clippy
  - rustup component add rustfmt-preview
 script:
  - cargo fmt -- --check
