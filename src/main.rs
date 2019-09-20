@@ -259,7 +259,6 @@ fn send_notification(recipient: &Mailbox, mlist: Vec<String>) {
 }
 
 fn run(mut opt: Opt) -> Result<(), Error> {
-
     if opt.config_file.as_os_str().is_empty() {
         opt.config_file = get_default_config_file()?;
     }
