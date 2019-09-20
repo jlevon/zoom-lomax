@@ -20,7 +20,6 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use chrono_tz::Tz;
-use clap;
 use dirs;
 use env_logger;
 use failure::{err_msg, Error, Fail};
@@ -30,10 +29,16 @@ use log::debug;
 use reqwest;
 use serde;
 use serde_json;
+use structopt::StructOpt;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+#[derive(Debug, StructOpt)]
+struct Opt {
+    /// Alternative config file
+    #[structopt(name = "config", long, short, value_name = "FILE", parse(from_os_str))]
+    config_file: path::PathBuf,
+}
 
-#[derive(Fail, Debug)]
+#[derive(Debug, Fail)]
 #[fail(display = "couldn't locate home directory")]
 struct NoHomeDirError;
 
@@ -253,15 +258,15 @@ fn send_notification(recipient: &Mailbox, mlist: Vec<String>) {
     }
 }
 
-fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
-    let config_file = matches
-        .value_of("config")
-        .map(path::PathBuf::from)
-        .unwrap_or(get_default_config_file()?);
+fn run(mut opt: Opt) -> Result<(), Error> {
 
-    debug!("using config file {}", config_file.display());
+    if opt.config_file.as_os_str().is_empty() {
+        opt.config_file = get_default_config_file()?;
+    }
 
-    let config = read_config(fs::File::open(config_file)?)?;
+    debug!("using config file {}", opt.config_file.display());
+
+    let config = read_config(fs::File::open(&opt.config_file)?)?;
 
     let now = Local::now();
     let mut mlist = Vec::new();
@@ -309,20 +314,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Error> {
 fn main() {
     env_logger::init();
 
-    let matches = clap::App::new("zoom-lomax")
-        .version(VERSION)
-        .about("Field recorder for Zoom")
-        .arg(
-            clap::Arg::with_name("config")
-                .short("c")
-                .long("config")
-                .value_name("FILE")
-                .help("Alternative config file")
-                .takes_value(true),
-        )
-        .get_matches();
-
-    if let Err(err) = run(&matches) {
+    if let Err(err) = run(Opt::from_args()) {
         eprintln!("{}", err);
         process::exit(1);
     }
