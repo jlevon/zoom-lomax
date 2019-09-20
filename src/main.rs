@@ -396,7 +396,6 @@ mod test {
         )
         .expect("fully specified");
     }
-
 }
 
 // vim: tabstop=4:shiftwidth=4:textwidth=100:expandtab
