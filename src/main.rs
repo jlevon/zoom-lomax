@@ -35,7 +35,7 @@ use structopt::StructOpt;
 struct Opt {
     /// Alternative config file
     #[structopt(name = "config", long, short, value_name = "FILE", parse(from_os_str))]
-    config_file: path::PathBuf,
+    config_file: Option<path::PathBuf>,
 }
 
 #[derive(Debug, Fail)]
@@ -258,14 +258,12 @@ fn send_notification(recipient: &Mailbox, mlist: Vec<String>) {
     }
 }
 
-fn run(mut opt: Opt) -> Result<(), Error> {
-    if opt.config_file.as_os_str().is_empty() {
-        opt.config_file = get_default_config_file()?;
-    }
+fn run(opt: Opt) -> Result<(), Error> {
+    let config_file = opt.config_file.unwrap_or(get_default_config_file()?);
 
-    debug!("using config file {}", opt.config_file.display());
+    debug!("using config file {}", config_file.display());
 
-    let config = read_config(fs::File::open(&opt.config_file)?)?;
+    let config = read_config(fs::File::open(&config_file)?)?;
 
     let now = Local::now();
     let mut mlist = Vec::new();
