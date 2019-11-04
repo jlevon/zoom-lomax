@@ -23,6 +23,7 @@ use chrono_tz::Tz;
 use dirs;
 use env_logger;
 use failure::{err_msg, Error, Fail};
+use jsonwebtoken;
 use lettre::{SendmailTransport, Transport};
 use lettre_email::{EmailBuilder, Mailbox};
 use log::debug;
@@ -62,6 +63,13 @@ struct Config {
     #[serde(default = "default_days")]
     days: i64,
     notify: Option<EmailAddress>,
+}
+
+/// https://marketplace.zoom.us/docs/guides/authorization/jwt/jwt-with-zoom#requirements
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct JWTPayload {
+    iss: String,
+    exp: usize,
 }
 
 /*
@@ -119,43 +127,26 @@ fn read_config(reader: impl io::Read) -> Result<Config, Error> {
     Ok(config)
 }
 
-fn get_user(client: &reqwest::Client, config: &Config) -> Result<ZoomUser, Error> {
-    let params = [
-        ("api_key", &config.api_key as &str),
-        ("api_secret", &config.api_secret as &str),
-        ("email", &config.user.to_string()),
-        ("data_type", "JSON"),
-    ];
-
-    let mut res = client
-        .post("https://api.zoom.us/v1/user/getbyemail")
-        .form(&params)
-        .send()?;
-
-    let user = res.json()?;
-
-    debug!("Got user data: {:#?}\n", user);
-
-    Ok(user)
-}
-
+/// https://marketplace.zoom.us/docs/api-reference/zoom-api/cloud-recording/recordingslist
 fn get_meetings(
     client: &reqwest::Client,
     config: &Config,
-    host_id: &str,
+    headers: &reqwest::header::HeaderMap,
 ) -> Result<ZoomMeetings, Error> {
-    let params = [
-        ("api_key", &config.api_key as &str),
-        ("api_secret", &config.api_secret as &str),
-        ("email", &config.user.to_string()),
-        ("host_id", host_id as &str),
-        ("page_size", "100"),
-        ("data_type", "JSON"),
-    ];
+    let from = (Utc::now() - Duration::days(config.days))
+        .format("%Y-%m-%d")
+        .to_string();
+    let to = Utc::now().format("%Y-%m-%d").to_string();
+
+    let query = [("from", from), ("to", to)];
 
     let mut res = client
-        .post("https://api.zoom.us/v1/recording/list")
-        .form(&params)
+        .get(&format!(
+            "https://api.zoom.us/v2/users/{}/recordings",
+            config.user
+        ))
+        .headers(headers.clone())
+        .query(&query)
         .send()?;
 
     let mlist = res.json()?;
@@ -163,12 +154,6 @@ fn get_meetings(
     debug!("Got meeting list: {:#?}\n", mlist);
 
     Ok(mlist)
-}
-
-fn in_days_range(mtime: &DateTime<Tz>, days: i64) -> bool {
-    let ctime = Utc::now().with_timezone(&mtime.timezone()) - Duration::days(days);
-
-    *mtime > ctime
 }
 
 /*
@@ -276,9 +261,29 @@ fn run(opt: Opt) -> Result<(), Error> {
         config.output_dir
     );
 
+    let jwt_payload = JWTPayload {
+        iss: config.api_key.to_string(),
+        exp: (Utc::now() + Duration::minutes(30)).timestamp() as usize,
+    };
+
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &jwt_payload,
+        config.api_secret.as_ref(),
+    )?;
+
+    debug!("JSON token: {:?} -> {}", jwt_payload, token);
+
+    let mut headers = reqwest::header::HeaderMap::new();
+
+    headers.insert(
+        reqwest::header::AUTHORIZATION,
+        format!("Bearer {}", token).parse().unwrap(),
+    );
+
     let client = reqwest::Client::new();
-    let user = get_user(&client, &config)?;
-    let meetings = get_meetings(&client, &config, &user.id)?;
+
+    let meetings = get_meetings(&client, &config, &headers)?;
 
     for meeting in meetings.meetings {
         /*
@@ -291,10 +296,6 @@ fn run(opt: Opt) -> Result<(), Error> {
         let mut mtime = DateTime::parse_from_rfc3339(&meeting.start_time)?.with_timezone(&tz);
 
         debug!("Saw meeting {:#?}\n", meeting);
-
-        if !in_days_range(&mtime, config.days) {
-            continue;
-        }
 
         round_time_to_hour(&mut mtime);
 

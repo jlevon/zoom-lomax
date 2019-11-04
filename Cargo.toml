@@ -1,6 +1,6 @@
 [package]
 name = "zoom-lomax"
-version = "0.2.1"
+version = "0.3.0"
 description = "Download Zoom recordings"
 authors = [ "John Levon <levon@movementarian.org>" ]
 readme = "README.md"
@@ -21,6 +21,7 @@ debug = true
 panic = 'abort'
 
 [dependencies]
+jsonwebtoken = "6"
 chrono = "0.4"
 chrono-tz = "0.4"
 dirs = "1.0.0"
