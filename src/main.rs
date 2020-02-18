@@ -5,13 +5,15 @@
  */
 
 /*
- * Copyright 2019 John Levon <levon@movementarian.org>
+ * Copyright 2020 John Levon <levon@movementarian.org>
  */
 
 //! # zoom-lomax: download recordings from Zoom.
 //!
 //! See [github](https://github.com/jlevon/zoom-lomax/) for details.
 
+use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::io;
 use std::path;
@@ -24,10 +26,14 @@ use dirs;
 use env_logger;
 use failure::{err_msg, Error, Fail};
 use jsonwebtoken;
+use lambda_runtime;
 use lettre::{SendmailTransport, Transport};
 use lettre_email::{EmailBuilder, Mailbox};
 use log::debug;
 use reqwest;
+use rusoto_core;
+use rusoto_ses::{Ses, SesClient};
+use rusoto_ssm::{Ssm, SsmClient};
 use serde;
 use serde_json;
 use structopt::StructOpt;
@@ -53,6 +59,8 @@ fn default_days() -> i64 {
     1
 }
 
+// FIXME: shouldn't require output_dir for lambda mode
+
 #[derive(serde::Deserialize, Debug)]
 struct Config {
     api_key: String,
@@ -65,6 +73,24 @@ struct Config {
     notify: Option<EmailAddress>,
 }
 
+#[derive(serde::Serialize, Debug, Clone)]
+struct RecordingFile {
+    outfile: String,
+    url: String,
+}
+
+#[derive(serde::Serialize, Debug, Clone)]
+struct Recording {
+    date: String,
+    time: String,
+    file: RecordingFile,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct Recordings {
+    recordings: Vec<Recording>,
+}
+
 /// https://marketplace.zoom.us/docs/guides/authorization/jwt/jwt-with-zoom#requirements
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct JWTPayload {
@@ -73,7 +99,7 @@ struct JWTPayload {
 }
 
 /*
- * These only contains the minimum we need.
+ * The below only contain the minimum fields we need from the API-defined JSON.
  */
 
 #[derive(serde::Deserialize, Debug)]
@@ -171,9 +197,9 @@ fn round_time_to_hour(mtime: &mut DateTime<Tz>) {
     }
 }
 
-fn create_meeting_dir(config: &Config, mtime: &DateTime<Tz>) -> io::Result<path::PathBuf> {
+fn create_meeting_dir(config: &Config, date: &str) -> io::Result<path::PathBuf> {
     let mut dir = path::PathBuf::from(&config.output_dir);
-    dir.push(mtime.format("%Y-%m-%d").to_string());
+    dir.push(date);
 
     fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -190,40 +216,106 @@ fn download(client: &reqwest::Client, url: &str, outfile: &path::PathBuf) -> Res
     Ok(())
 }
 
-fn download_meeting(
-    client: &reqwest::Client,
-    config: &Config,
-    mlist: &mut Vec<String>,
-    meeting: &ZoomMeeting,
-    mtime: &DateTime<Tz>,
-) {
-    let dir = create_meeting_dir(&config, &mtime).unwrap();
-
-    for recording in &meeting.recording_files {
-        let suffix = ".".to_string() + &recording.file_type.to_ascii_lowercase();
-        let mut outfile = dir.clone();
-        outfile.push(mtime.format("%H.%M").to_string() + &suffix);
+fn download_meetings(client: &reqwest::Client, config: &Config, rlist: &Recordings) {
+    for recording in &rlist.recordings {
+        let dir = create_meeting_dir(&config, &recording.date).unwrap();
+        let mut outfile = dir;
+        outfile.push(&recording.file.outfile);
 
         if outfile.exists() {
             continue;
         }
 
-        println!("Downloading {} file for meeting at {}", suffix, mtime);
-
-        mlist.push(outfile.to_string_lossy().to_string());
-
-        download(&client, &recording.download_url, &outfile).unwrap();
+        println!(
+            "Downloading recording file to {}",
+            outfile.to_string_lossy()
+        );
+        download(&client, &recording.file.url, &outfile).unwrap();
     }
 }
 
-fn send_notification(recipient: &Mailbox, mlist: Vec<String>) {
+fn process_meeting(rlist: &mut Recordings, meeting: &ZoomMeeting, mtime: &DateTime<Tz>) {
+    let date = mtime.format("%Y-%m-%d").to_string();
+
+    for recording in &meeting.recording_files {
+        let time = mtime.format("%H.%M").to_string();
+        let outfile = time.clone() + "." + &recording.file_type.to_ascii_lowercase();
+
+        let recording = Recording {
+            time,
+            date: date.clone(),
+            file: RecordingFile {
+                outfile,
+                url: recording.download_url.clone(),
+            },
+        };
+
+        debug!("Adding recording {:#?}\n", recording);
+
+        rlist.recordings.push(recording);
+    }
+}
+
+fn send_ses(recipient: &Mailbox, subject: &str, body: &str) {
+    // FIXME: region hard-coded here as us-east-2 has no SES
+    let sesclient = SesClient::new(rusoto_core::Region::UsEast1);
+    let to = format!("{}", recipient);
+
+    let result = sesclient
+        .send_email(rusoto_ses::SendEmailRequest {
+            destination: rusoto_ses::Destination {
+                to_addresses: Some(vec![to]),
+                ..rusoto_ses::Destination::default()
+            },
+            message: rusoto_ses::Message {
+                subject: rusoto_ses::Content {
+                    data: subject.to_string(),
+                    ..rusoto_ses::Content::default()
+                },
+                body: rusoto_ses::Body {
+                    text: Some(rusoto_ses::Content {
+                        data: body.to_string(),
+                        ..rusoto_ses::Content::default()
+                    }),
+                    ..rusoto_ses::Body::default()
+                },
+            },
+            source: "zoom-lomax@movementarian.org".to_string(),
+            ..rusoto_ses::SendEmailRequest::default()
+        })
+        .sync();
+
+    if result.is_err() {
+        eprintln!("Couldn't send email to {}: {:?}", recipient, result);
+    }
+}
+
+fn send_notification(config: &Config, is_lambda: bool, rlist: &Recordings) {
     let now = Local::now().format("%Y-%m-%d");
     let subject = format!("{}: new Zoom recordings", now);
+    let recipient = &config.notify.as_ref().unwrap().0;
 
-    let mut body = "New Zoom recordings are available:\n\n".to_owned();
+    let mut body = "Zoom recordings are available:\n\n".to_owned();
 
-    for file in mlist {
-        body += &format!("{}\n", file);
+    for recording in &rlist.recordings {
+        if is_lambda {
+            body += &format!(
+                "{}/{}: {}\n",
+                recording.date, recording.file.outfile, recording.file.url
+            );
+        } else {
+            body += &format!(
+                "{}/{}/{}\n",
+                config.output_dir, recording.date, recording.file.outfile
+            );
+        }
+    }
+
+    debug!("Sending notification to {:?}\n", recipient);
+
+    if is_lambda {
+        send_ses(recipient, &subject, &body);
+        return;
     }
 
     let email = EmailBuilder::new()
@@ -234,8 +326,6 @@ fn send_notification(recipient: &Mailbox, mlist: Vec<String>) {
         .build()
         .unwrap();
 
-    debug!("Sending notification to {:?}\n", recipient);
-
     let result = SendmailTransport::new().send(email.into());
 
     if result.is_err() {
@@ -243,22 +333,17 @@ fn send_notification(recipient: &Mailbox, mlist: Vec<String>) {
     }
 }
 
-fn run(opt: Opt) -> Result<(), Error> {
-    let config_file = opt.config_file.unwrap_or(get_default_config_file()?);
-
-    debug!("using config file {}", config_file.display());
-
-    let config = read_config(fs::File::open(&config_file)?)?;
-
+fn run(config: Config, is_lambda: bool) -> Result<Recordings, Error> {
     let now = Local::now();
-    let mut mlist = Vec::new();
+    let mut rlist = Recordings {
+        recordings: Vec::new(),
+    };
 
     println!(
-        "{}: downloading {}'s meetings for past {} days to {}",
+        "{}: collecting {}'s meetings for past {} days",
         now.format("%Y-%m-%d"),
         config.user,
-        config.days,
-        config.output_dir
+        config.days
     );
 
     let jwt_payload = JWTPayload {
@@ -299,20 +384,80 @@ fn run(opt: Opt) -> Result<(), Error> {
 
         round_time_to_hour(&mut mtime);
 
-        download_meeting(&client, &config, &mut mlist, &meeting, &mtime);
+        process_meeting(&mut rlist, &meeting, &mtime);
     }
 
-    if !mlist.is_empty() && config.notify.is_some() {
-        send_notification(&config.notify.unwrap().0, mlist);
+    if !is_lambda {
+        download_meetings(&client, &config, &rlist);
     }
 
-    Ok(())
+    if !rlist.recordings.is_empty() && config.notify.is_some() {
+        send_notification(&config, is_lambda, &rlist);
+    }
+
+    Ok(rlist)
+}
+
+fn run_cmdline(opt: Opt) -> Result<(), Error> {
+    let config_file = opt.config_file.unwrap_or(get_default_config_file()?);
+
+    debug!("using config file {}", config_file.display());
+
+    let config = read_config(fs::File::open(&config_file)?)?;
+
+    run(config, false).map(|_r| ())
+}
+
+fn run_lambda(
+    event: Config,
+    _context: lambda_runtime::Context,
+) -> Result<Recordings, lambda_runtime::error::HandlerError> {
+    let ssmreq = rusoto_ssm::GetParametersRequest {
+        names: vec![event.api_key.clone(), event.api_secret.clone()],
+        with_decryption: Some(true),
+    };
+
+    let result = SsmClient::new(rusoto_core::Region::default())
+        .get_parameters(ssmreq)
+        .sync()
+        .unwrap();
+
+    /*
+     * The parameter details are annoyingly wrapped in a bunch of Options, unwrap them all.
+     */
+    let params: HashMap<_, _> = result
+        .parameters
+        .unwrap()
+        .into_iter()
+        .map(|p| (p.name.unwrap(), p.value.unwrap()))
+        .collect();
+
+    let api_key = params
+        .get(&event.api_key)
+        .expect("api_key mising from parameter store")
+        .to_string();
+    let api_secret = params
+        .get(&event.api_secret)
+        .expect("api_secret mising from parameter store")
+        .to_string();
+
+    let config = Config {
+        api_key,
+        api_secret,
+        ..event
+    };
+    run(config, true).map_err(|err| err.into())
 }
 
 fn main() {
     env_logger::init();
 
-    if let Err(err) = run(Opt::from_args()) {
+    if env::var_os("AWS_REGION").is_some() {
+        lambda_runtime::lambda!(run_lambda);
+        process::exit(0);
+    }
+
+    if let Err(err) = run_cmdline(Opt::from_args()) {
         eprintln!("{}", err);
         process::exit(1);
     }

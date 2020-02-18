@@ -43,3 +43,24 @@ and run with:
 ```
 $ ./target/debug/zoom-lomax
 ```
+
+## AWS Lambda support
+
+This can also run as a lambda function. In this case, no downloads are
+done, and the notification email contents provides a list of URIs and
+times. It's easiest to build this with
+[https://github.com/emk/rust-musl-builder](rust-musl-builder). The
+function also returns a payload listing all matching recordings and
+their URLs.
+
+The JSON configuration above should be provided as the event for the
+Lambda handler, except that `api_key` and `api_secret` should
+instead refer to Parameter Store names, each of which contain a
+`SecureString` with the value. `output_dir` is ignored currently.
+
+Email notification works via Amazon SES, so that must be configured
+(domain and potentially destination email both verified). Right now it's
+hard-coded to use the `us-east-1` region.
+
+The Lambda function needs to run as a role with permissions for SES, and SSM
+parameter store (such as `AmazonSESFullAccess` and `AmazonSSMReadOnlyAccess`).
