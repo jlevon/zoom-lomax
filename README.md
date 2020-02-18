@@ -49,7 +49,7 @@ $ ./target/debug/zoom-lomax
 This can also run as a lambda function. In this case, no downloads are
 done, and the notification email contents provides a list of URIs and
 times. It's easiest to build this with
-[https://github.com/emk/rust-musl-builder](rust-musl-builder). The
+[rust-musl-builder](https://github.com/emk/rust-musl-builder). The
 function also returns a payload listing all matching recordings and
 their URLs.
 
